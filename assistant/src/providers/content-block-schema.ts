@@ -20,7 +20,7 @@
 
 import { z } from "zod";
 
-import type { ContentBlock } from "./types.js";
+import { type ContentBlock, MEDIA_RETENTION_VALUES } from "./types.js";
 
 const base64MediaSourceSchema = z
   .object({
@@ -36,10 +36,18 @@ const workspaceRefMediaSourceSchema = z
     type: z.literal("workspace_ref"),
     media_type: z.string(),
     attachmentId: z.string(),
-    sizeBytes: z.number(),
+    sizeBytes: z.number().int().nonnegative(),
     filename: z.string().optional(),
     width: z.number().optional(),
     height: z.number().optional(),
+    // Read by the outbound sanitizer's payload cap; a malformed value degrades
+    // to absent so the consumer falls back to `sizeBytes`.
+    transportSizeBytes: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .catch(undefined),
   })
   .passthrough();
 
@@ -112,6 +120,11 @@ const toolResultContentSchema = z
     content: z.string(),
     is_error: z.boolean().optional(),
     contentBlocks: z.lazy(() => z.array(contentBlockSchema)).optional(),
+    // Read back off the stored row by the outbound sanitizer, so it is
+    // validated rather than passed through. A value outside the enum (an
+    // imported or hand-edited blob) degrades to absent, the frame default,
+    // instead of failing the whole block into legacy repair.
+    mediaRetention: z.enum(MEDIA_RETENTION_VALUES).optional().catch(undefined),
   })
   .passthrough();
 

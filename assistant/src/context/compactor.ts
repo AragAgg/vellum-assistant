@@ -1181,8 +1181,9 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 
 // Build the outbound message list for a compaction provider call: apply the
 // same pre-send sanitization bundle as the agent loop's model calls
-// (`preModelCallSanitize`: old tool-result media stripped, AX trees
-// collapsed, historical web-search results converted to text), run the
+// (`preModelCallSanitize`: stale frame media and over-cap document media
+// dropped, AX trees collapsed, historical web-search results converted to
+// text), run the
 // deterministic history repair over the sanitized projection, then append
 // the summarization instruction at the tail. The repair pass downgrades any
 // orphaned `tool_result` (its `tool_use` outside the request, e.g. cut off

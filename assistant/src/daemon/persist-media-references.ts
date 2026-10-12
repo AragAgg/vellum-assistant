@@ -16,8 +16,6 @@
  * block passes through untouched.
  */
 
-import { optimizeImageForTransport } from "../agent/image-optimize.js";
-import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
   createInlineAttachment,
   linkAttachmentToMessage,
@@ -30,6 +28,7 @@ import type {
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { toolImageFilename } from "./assistant-attachments.js";
+import { storedImageReferenceHints } from "./reference-image-hints.js";
 
 const log = getLogger("persist-media-references");
 
@@ -37,19 +36,6 @@ const log = getLogger("persist-media-references");
 function imageFilename(mediaType: string): string {
   const subtype = mediaType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
   return `image.${subtype}`;
-}
-
-/**
- * Dimensions to hint on an image reference. The model receives the
- * transport-optimized image (`resolveMediaReferences` applies the same
- * optimization at send time), so hint the optimized dimensions.
- */
-async function optimizedImageDimensions(
-  dataBase64: string,
-  mediaType: string,
-): Promise<{ width: number; height: number } | null> {
-  const optimized = await optimizeImageForTransport(dataBase64, mediaType);
-  return parseImageDimensions(optimized.data, optimized.mediaType);
 }
 
 /**
@@ -75,14 +61,19 @@ async function referenceMediaBlock(
       ? (imageFilenameOverride ?? imageFilename(media_type))
       : "attachment");
 
-  let stored: { id: string; sizeBytes: number };
+  let stored: { id: string; mimeType: string; sizeBytes: number };
   try {
+    // Images are normalized the way uploads are: the declared type is only
+    // the tool's claim, and the store corrects it to the sniffed format (and
+    // converts HEIF to JPEG), so the reference's `media_type` describes the
+    // stored bytes the same way an upload reference's does.
     stored = await createInlineAttachment(
       conversationId,
       conversationCreatedAt,
       filename,
       media_type,
       data,
+      { normalizeImage: block.type === "image" },
     );
     linkAttachmentToMessage(messageId, stored.id, position);
   } catch (err) {
@@ -95,7 +86,7 @@ async function referenceMediaBlock(
 
   const source: WorkspaceRefMediaSource = {
     type: "workspace_ref",
-    media_type,
+    media_type: stored.mimeType,
     attachmentId: stored.id,
     sizeBytes: stored.sizeBytes,
     ...(block.source.filename !== undefined
@@ -103,10 +94,13 @@ async function referenceMediaBlock(
       : {}),
   };
   if (block.type === "image") {
-    const dims = await optimizedImageDimensions(data, media_type);
-    if (dims) {
-      source.width = dims.width;
-      source.height = dims.height;
+    const hints = await storedImageReferenceHints(stored.id, stored.mimeType);
+    if (hints) {
+      if (hints.dimensions) {
+        source.width = hints.dimensions.width;
+        source.height = hints.dimensions.height;
+      }
+      source.transportSizeBytes = hints.transportSizeBytes;
     }
     return { type: "image", source };
   }

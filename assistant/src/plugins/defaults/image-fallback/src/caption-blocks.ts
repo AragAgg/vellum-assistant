@@ -39,10 +39,10 @@ import {
   doesSupportVision,
   getModelProfiles,
   type ImageContent,
-  lastToolResultUserMessageIndex,
   type Message,
   type PluginLogger,
   resolveMediaSourceData,
+  retainedToolResultMediaKeysBeforeCap,
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
@@ -155,13 +155,19 @@ export async function captionImageBlocks(
  */
 async function captionToolResultMedia(
   message: Message,
+  isRetained: (blockIndex: number) => boolean,
   conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
   let replaced = 0;
-  for (const block of message.content) {
-    if (block.type === "tool_result" && block.contentBlocks != null) {
+  for (let i = 0; i < message.content.length; i++) {
+    const block = message.content[i];
+    if (
+      block.type === "tool_result" &&
+      block.contentBlocks != null &&
+      isRetained(i)
+    ) {
       replaced += await captionImageBlocks(
         block.contentBlocks,
         conversationId,
@@ -233,6 +239,7 @@ export async function captionImagesInMessages(
     );
     replaced += await captionToolResultMedia(
       message,
+      () => true,
       conversationId,
       visionProfileKey,
       logger,
@@ -243,13 +250,19 @@ export async function captionImagesInMessages(
 }
 
 /**
- * Caption only the image blocks a rejected model call would still carry after
- * the host's outbound media-stripping: every top-level image block (the
- * sanitizer never strips those) plus tool_result media in the current-turn
- * message ({@link lastToolResultUserMessageIndex}, the one the sanitizer keeps
- * intact). Older tool_result media is left raw so the sanitizer replaces it
- * with its compact removed-media marker on the retry rather than a full
- * caption: captioning it would waste vision calls and balloon context.
+ * Caption the image blocks a rejected model call, or its retry, can carry
+ * after the host's outbound media retention: every top-level image block (the
+ * sanitizer never strips those) plus the tool_result media the retention
+ * policy keeps before its payload cap ({@link retainedToolResultMediaKeysBeforeCap}:
+ * the current step's screenshots and every file read). Stale screenshots are
+ * left raw so the retry replaces them with the compact removed-media marker
+ * rather than a full caption.
+ *
+ * File reads the cap had thinned from the rejected request are captioned too,
+ * not left for the marker: captioning removes media bytes from history, the
+ * retry recomputes the cap over the lighter history, and documents it had
+ * evicted come back into the request as raw images, which the text-only
+ * provider rejects again with the one-shot recovery already spent.
  *
  * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */
@@ -259,7 +272,7 @@ export async function captionOutboundImagesInMessages(
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
-  const currentTurnIdx = lastToolResultUserMessageIndex(messages);
+  const retained = retainedToolResultMediaKeysBeforeCap(messages);
   let replaced = 0;
   for (let i = 0; i < messages.length; i++) {
     replaced += await captionImageBlocks(
@@ -268,14 +281,13 @@ export async function captionOutboundImagesInMessages(
       visionProfileKey,
       logger,
     );
-    if (i === currentTurnIdx) {
-      replaced += await captionToolResultMedia(
-        messages[i],
-        conversationId,
-        visionProfileKey,
-        logger,
-      );
-    }
+    replaced += await captionToolResultMedia(
+      messages[i],
+      (blockIndex) => retained.has(`${i}:${blockIndex}`),
+      conversationId,
+      visionProfileKey,
+      logger,
+    );
   }
   flattenTextOnlyBlocks(messages);
   return replaced;

@@ -1,5 +1,9 @@
-import type { ToolDefinition } from "../tools/tool-types.js";
-export type { ToolDefinition };
+import {
+  MEDIA_RETENTION_VALUES,
+  type MediaRetention,
+  type ToolDefinition,
+} from "../tools/tool-types.js";
+export { MEDIA_RETENTION_VALUES, type MediaRetention, type ToolDefinition };
 
 /**
  * The tool name that activates provider-native web search. Callers append a
@@ -73,6 +77,18 @@ export interface WorkspaceRefMediaSource {
   width?: number;
   /** Decoded pixel height, when the reference is an image. */
   height?: number;
+  /**
+   * Decoded byte length of what the send path puts on the wire for an image
+   * reference, recorded at persist time from the stored bytes by running the
+   * same transport optimization `resolveMediaReferences` applies. A stored
+   * upload keeps its full-resolution master, so this can be far below
+   * `sizeBytes`. 0 when the resolver will substitute a text note, because the
+   * stored bytes are a format no provider reads or cannot be reduced under the
+   * transport cap, so the image puts nothing on the wire.
+   * Absent on rows persisted before it was recorded; size-only consumers fall
+   * back to `sizeBytes`.
+   */
+  transportSizeBytes?: number;
 }
 
 export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
@@ -183,6 +199,14 @@ export interface ToolResultContent {
   is_error?: boolean;
   /** Rich content blocks (e.g. images) to include alongside text in the tool result. */
   contentBlocks?: ContentBlock[];
+  /**
+   * Retention class of the media in `contentBlocks`, copied from the tool
+   * definition by the agent loop and present only when the tool declares one.
+   * Internal: it survives persistence (the content-block schema passes unknown
+   * keys through) and never reaches a provider, since every adapter builds its
+   * tool_result wire block field by field.
+   */
+  mediaRetention?: MediaRetention;
 }
 
 export interface ServerToolUseContent {

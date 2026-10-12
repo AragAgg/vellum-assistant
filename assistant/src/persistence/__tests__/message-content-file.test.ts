@@ -9,7 +9,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { contentBlockArraySchema } from "../../providers/content-block-schema.js";
+import {
+  contentBlockArraySchema,
+  mediaSourceSchema,
+} from "../../providers/content-block-schema.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import {
@@ -168,6 +171,85 @@ describe("resolveMessageContentBlocks", () => {
       },
     ];
     expect(resolveMessageContentBlocks(JSON.stringify(blocks))).toEqual(blocks);
+  });
+
+  test("round-trips a tool_result's media retention class and drops an unknown one", () => {
+    // The outbound sanitizer reads `mediaRetention` off the stored block, so
+    // the schema validates it instead of passing it through.
+    const tagged: ContentBlock[] = [
+      {
+        type: "tool_result",
+        tool_use_id: "tu-1",
+        content: "Image loaded",
+        contentBlocks: [textBlock("nested")],
+        mediaRetention: "document",
+      },
+    ];
+    const taggedJson = JSON.stringify(tagged);
+    const parsed = resolveMessageContentBlocks(taggedJson);
+    expect(parsed).toEqual(tagged);
+    expect(JSON.stringify(parsed)).toBe(taggedJson);
+
+    // A value outside the enum (an imported or hand-edited blob) degrades to
+    // absent, the frame default, and the block is otherwise intact rather
+    // than failing into legacy repair.
+    const bogus = JSON.stringify([{ ...tagged[0], mediaRetention: "forever" }]);
+    const repaired = resolveMessageContentBlocks(bogus);
+    expect(repaired).toHaveLength(1);
+    expect(repaired[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu-1",
+      content: "Image loaded",
+    });
+    expect(
+      (repaired[0] as { mediaRetention?: unknown }).mediaRetention,
+    ).toBeUndefined();
+  });
+
+  test("round-trips an image reference's transport size hint and drops a malformed one", () => {
+    const source = {
+      type: "workspace_ref" as const,
+      media_type: "image/png",
+      attachmentId: "att-1",
+      sizeBytes: 12_000_000,
+      transportSizeBytes: 3_000_000,
+    };
+    const hinted: ContentBlock[] = [{ type: "image", source }];
+    const hintedJson = JSON.stringify(hinted);
+    expect(JSON.stringify(resolveMessageContentBlocks(hintedJson))).toBe(
+      hintedJson,
+    );
+
+    for (const bad of ["big", -1, 1.5]) {
+      const malformed = JSON.stringify([
+        { type: "image", source: { ...source, transportSizeBytes: bad } },
+      ]);
+      const repaired = resolveMessageContentBlocks(malformed)[0];
+      expect(repaired.type).toBe("image");
+      if (
+        repaired.type !== "image" ||
+        repaired.source.type !== "workspace_ref"
+      ) {
+        throw new Error("expected an image reference");
+      }
+      expect(repaired.source.sizeBytes).toBe(12_000_000);
+      expect(repaired.source.transportSizeBytes).toBeUndefined();
+    }
+  });
+
+  test("a reference's stored size must be a nonnegative integer", () => {
+    const ref = {
+      type: "workspace_ref",
+      media_type: "image/png",
+      attachmentId: "att-1",
+      sizeBytes: 0,
+    };
+    expect(mediaSourceSchema.safeParse(ref).success).toBe(true);
+    for (const bad of [-1, 1.5, Number.NaN, "big"]) {
+      expect(
+        mediaSourceSchema.safeParse({ ...ref, sizeBytes: bad }).success,
+      ).toBe(false);
+    }
   });
 
   test("passes typed blocks outside the union through untouched", () => {
