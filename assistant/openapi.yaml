@@ -14612,6 +14612,8 @@ paths:
                         type: boolean
                       composerSettings:
                         type: boolean
+                      allAlerts:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
@@ -14849,6 +14851,8 @@ paths:
                       chatsSettings:
                         type: boolean
                       composerSettings:
+                        type: boolean
+                      allAlerts:
                         type: boolean
                     required:
                       - memoryOptOut
@@ -38917,6 +38921,10 @@ components:
                   anyOf:
                     - type: boolean
                     - type: "null"
+                allAlertsEnabled:
+                  anyOf:
+                    - type: boolean
+                    - type: "null"
               additionalProperties: {}
             - type: "null"
         llm:
@@ -39686,8 +39694,15 @@ components:
               default: true
               description: Allow ordinary chat-reply alerts. Does not change unread state or action-required alerts.
               type: boolean
+            allAlertsEnabled:
+              default: false
+              description:
+                Banner every local notification, not only urgent ones and completions. Explicitly quiet notifications and
+                disabled chat-reply alerts stay silent. Channel routing is unchanged.
+              type: boolean
           required:
             - newMessageEnabled
+            - allAlertsEnabled
           additionalProperties: {}
         llm:
           type: object

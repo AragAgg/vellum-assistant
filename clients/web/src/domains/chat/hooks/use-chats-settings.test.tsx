@@ -13,6 +13,8 @@ import type {
 
 let supported: boolean | undefined = true;
 let capabilityError = false;
+let allAlertsSupported: boolean | undefined = true;
+let allAlertsCapabilityError = false;
 const retryCapability = mock(() => {});
 let orgReady = true;
 let organizationId = "org-1";
@@ -47,12 +49,20 @@ const patchConfig = mock(async (_options: ConfigPatchData) => {
 });
 const configKey = (assistantId: string) => ["config", assistantId];
 mock.module("@/hooks/use-assistant-capability", () => ({
-  useAssistantCapabilityQuery: () => ({
-    data: supported,
-    isPending: supported === undefined && !capabilityError,
-    isError: capabilityError,
-    refetch: retryCapability,
-  }),
+  useAssistantCapabilityQuery: (capability: string) =>
+    capability === "allAlerts"
+      ? {
+          data: allAlertsSupported,
+          isPending: allAlertsSupported === undefined && !allAlertsCapabilityError,
+          isError: allAlertsCapabilityError,
+          refetch: retryCapability,
+        }
+      : {
+          data: supported,
+          isPending: supported === undefined && !capabilityError,
+          isError: capabilityError,
+          refetch: retryCapability,
+        },
 }));
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
@@ -84,6 +94,8 @@ const onSaved = mock(() => {});
 beforeEach(() => {
   supported = true;
   capabilityError = false;
+  allAlertsSupported = true;
+  allAlertsCapabilityError = false;
   retryCapability.mockClear();
   orgReady = true;
   organizationId = "org-1";
@@ -95,7 +107,7 @@ beforeEach(() => {
   finishLoad = undefined;
   savedConfig = {
     conversations: { autoArchive: { enabled: false, afterDays: 7 } },
-    notifications: { newMessageEnabled: true },
+    notifications: { newMessageEnabled: true, allAlertsEnabled: false },
   };
   getConfig.mockClear();
   patchConfig.mockClear();
@@ -131,12 +143,67 @@ test("loads selected assistant settings only when opened", async () => {
     values: {
       autoArchive: { enabled: false, afterDays: 7 },
       newMessageEnabled: true,
+      allAlertsEnabled: false,
     },
+  });
+});
+test("omits the all-alerts leaf for an assistant without the capability", async () => {
+  allAlertsSupported = false;
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  expect(hook.result.current.state).toEqual({
+    status: "ready",
+    values: {
+      autoArchive: { enabled: false, afterDays: 7 },
+      newMessageEnabled: true,
+    },
+  });
+});
+test("an initial all-alerts capability failure offers retry", async () => {
+  allAlertsSupported = undefined;
+  allAlertsCapabilityError = true;
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.state.status).toBe("error"));
+  await act(() => hook.result.current.save(changes));
+  expect(patchConfig).not.toHaveBeenCalled();
+  act(() => hook.result.current.retryLoad());
+  expect(retryCapability).toHaveBeenCalled();
+  allAlertsCapabilityError = false;
+  allAlertsSupported = true;
+  hook.rerender({ open: true });
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  expect(hook.result.current.state).toMatchObject({
+    values: { allAlertsEnabled: false },
+  });
+});
+test("a failed all-alerts capability refresh preserves the loaded form", async () => {
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  allAlertsCapabilityError = true;
+  hook.rerender({ open: true });
+  expect(hook.result.current.state).toMatchObject({
+    status: "ready",
+    values: { allAlertsEnabled: false },
+  });
+});
+test("waits for the all-alerts capability before exposing the form", async () => {
+  allAlertsSupported = undefined;
+  const hook = mount();
+  await waitFor(() => expect(getConfig).toHaveBeenCalledWith("assistant-1"));
+  expect(hook.result.current.state.status).toBe("loading");
+  allAlertsSupported = true;
+  hook.rerender({ open: true });
+  await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+  expect(hook.result.current.state).toMatchObject({
+    values: { allAlertsEnabled: false },
   });
 });
 test("a fresh session waits for current settings even when cached data exists", async () => {
   client.setQueryData(configKey("assistant-1"), savedConfig);
-  savedConfig = { ...savedConfig, notifications: { newMessageEnabled: false } };
+  savedConfig = {
+    ...savedConfig,
+    notifications: { newMessageEnabled: false, allAlertsEnabled: false },
+  };
   deferLoad = true;
   const hook = mount();
   expect(hook.result.current.state.status).toBe("loading");
@@ -242,7 +309,10 @@ test("submits only changed leaves once and updates the owning cache", async () =
   const hook = mount();
   await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
   client.setQueryData(configKey("assistant-2"), { marker: "other" });
-  savedConfig = { ...savedConfig, notifications: { newMessageEnabled: false } };
+  savedConfig = {
+    ...savedConfig,
+    notifications: { newMessageEnabled: false, allAlertsEnabled: false },
+  };
   deferSave = true;
   let saving: Promise<void> | undefined;
   act(() => {
@@ -311,7 +381,10 @@ test("late saves after unmount cannot restore old cache or close another modal",
 test("config invalidation refreshes values without hiding ready data", async () => {
   const hook = mount();
   await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
-  savedConfig = { ...savedConfig, notifications: { newMessageEnabled: false } };
+  savedConfig = {
+    ...savedConfig,
+    notifications: { newMessageEnabled: false, allAlertsEnabled: false },
+  };
   await act(() =>
     client.invalidateQueries({ queryKey: configKey("assistant-1") }),
   );

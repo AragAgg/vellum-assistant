@@ -177,6 +177,7 @@ function settingsFixture(
     },
     notifications: {
       newMessageEnabled: context.parameters.notificationsOff !== true,
+      allAlertsEnabled: false,
     },
   };
 }
@@ -283,6 +284,10 @@ const meta = {
       createStoryQueryClient((cache) => {
         cache.setQueryData(
           ["assistant-capability", "chatsSettings", SETTINGS_ASSISTANT_ID],
+          true,
+        );
+        cache.setQueryData(
+          ["assistant-capability", "allAlerts", SETTINGS_ASSISTANT_ID],
           true,
         );
         cache.setQueryData(
