@@ -1540,7 +1540,6 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         assistantDigest: imageDigests?.assistant,
         gatewayDigest: imageDigests?.gateway,
         cesDigest: imageDigests?.["credential-executor"],
-        networkName: res.network,
         assistantPort,
       },
     };

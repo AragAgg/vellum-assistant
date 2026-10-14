@@ -388,7 +388,6 @@ describe("vellum upgrade local", () => {
         previousVersion: "v0.8.11",
         previousDbMigrationVersion: 12,
         previousWorkspaceMigrationId: "011-test",
-        preUpgradeBackupPath: "/tmp/local-pre-upgrade.vbundle",
       }),
     );
     expect(stopLocalProcessesMock).toHaveBeenCalledWith(

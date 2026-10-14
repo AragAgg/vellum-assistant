@@ -865,13 +865,11 @@ export async function performDockerRollback(
         assistantDigest: newDigests?.assistant,
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
-        networkName: res.network,
         assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
-      preUpgradeBackupPath: undefined,
     };
     saveAssistantEntry(updatedEntry);
 
@@ -1032,13 +1030,11 @@ export async function performDockerRollback(
               cesDigest:
                 revertDigests?.["credential-executor"] ??
                 currentImageRefs["credential-executor"],
-              networkName: res.network,
               assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,
             previousWorkspaceMigrationId: undefined,
-            preUpgradeBackupPath: undefined,
           };
           saveAssistantEntry(revertedEntry);
 
